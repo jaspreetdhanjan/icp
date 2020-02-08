@@ -2,6 +2,7 @@ import numpy as np
 
 from scipy.spatial import cKDTree
 from random import sample
+import matplotlib.pyplot as plt
 import copy
 
 
@@ -29,7 +30,22 @@ class Model:
 
 class ICP:
     @staticmethod
-    def align(source_model, dest_model, sample_size, max_it):
+    def align(source_model, dest_model, max_it):
+        # Construct KD-tree from target points, so that we can search through it easy!
+
+        correspondence_list = []
+
+        tree = cKDTree(np.reshape(dest_model.points, (len(dest_model.points), 3)))
+
+        for p in source_model.points:
+            # Numpy is really awkward, converting this point to a column vector
+            # Query and append to our correspondence list
+
+            d, i = tree.query(np.reshape(p, (1, 3)), k=1, p=2)
+
+            closest = dest_model.points[i[0]]
+            correspondence_list.append(closest)
+
         # Create a copy of our model, we don't want to modify the existing point list
 
         new_model = copy.deepcopy(source_model)
@@ -37,48 +53,41 @@ class ICP:
         # Run ICP and apply translation
 
         it = 0
-        error = 1
+        errors = []
 
         while it < max_it:
-            print("Beginning iterative closest point with " + str(sample_size) + " point samples and " +
-                  str(max_it - it) + " remaining iterations...")
+            print("Beginning iterative closest point with " + str(max_it - it) + " remaining iterations...")
 
-            r, t = ICP.calculate_translation(new_model.points, dest_model.points, sample_size, error)
+            r, t = ICP.calculate_translation(new_model.points, correspondence_list)
 
             new_model.apply_transformation(r, t)
 
+            errors.append(ICP.calculate_error(new_model.points, correspondence_list, r, t))
+
             it += 1
+
+        # Plot the error of error over iterations
+
+        plt.plot(range(0, it), errors)
+        plt.xlabel("Iterations")
+        plt.ylabel("Magnitude of error")
+        plt.show()
 
         return new_model
 
-    # Do we take a random subset of points at each iteration?
+    @staticmethod
+    def calculate_error(p_points, q_points, rotation_matrix, translation_vector):
+        error_sum = 0
+
+        for i in range(0, len(p_points)):
+            error_sum += pow(np.linalg.norm(p_points[i] - rotation_matrix.dot(q_points[i]) - translation_vector), 2)
+
+        return error_sum
 
     @staticmethod
-    def calculate_translation(current_points, target_points, sample_size, error):
-        # Get a random subset of points from the model we want to align. Also get their corresponding points.
-
-        sample_p = current_points
-        sample_q = []
-
-        #sample_p = sample(current_points, sample_size)
-        #sample_q = []
-
-        # Construct KD-tree from target points, so that we can search through it easy!
-
-        tree = cKDTree(np.reshape(target_points, (len(target_points), 3)))
-
-        for p in sample_p:
-            # q = ICP.get_nearest_point(p, target_points)
-            # sample_q.append(q)
-
-            # Numpy is really awkward, converting this point to a column vector
-            # Query and append to our correspondence list
-
-            d, i = tree.query(np.reshape(p, (1, 3)), k=1, p=2)
-
-            closest = target_points[i[0]]
-
-            sample_q.append(closest)
+    def calculate_translation(p_points, q_points):
+        assert len(p_points) == len(q_points)
+        sample_size = len(p_points)
 
         # Normalise to barycentric form
 
@@ -89,25 +98,22 @@ class ICP:
         mean_of_q = np.array([[0], [0], [0]])
 
         for i in range(0, sample_size):
-            mean_of_p = mean_of_p + sample_p[i]
-            mean_of_q = mean_of_q + sample_q[i]
+            mean_of_p = mean_of_p + p_points[i]
+            mean_of_q = mean_of_q + q_points[i]
 
         mean_of_p = mean_of_p / sample_size
         mean_of_q = mean_of_q / sample_size
 
-        print("Mean of p: " + str(mean_of_p))
-        print("Mean of q: " + str(mean_of_q))
-
         for i in range(0, sample_size):
-            normalised_points_of_p.append(sample_p[i] - mean_of_p)
-            normalised_points_of_q.append(sample_q[i] - mean_of_q)
+            normalised_points_of_p.append(p_points[i] - mean_of_p)
+            normalised_points_of_q.append(q_points[i] - mean_of_q)
 
         # Multiply normalised barycenters together. Add to matrix.
 
         sum_of_products_matrix = np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
 
         for i in range(0, sample_size):
-            product_matrix = normalised_points_of_p[i] * (normalised_points_of_q[i].transpose())
+            product_matrix = normalised_points_of_p[i] * normalised_points_of_q[i].transpose()
             sum_of_products_matrix = sum_of_products_matrix + product_matrix
 
         # Get our orthonormal set and derive the rotation matrix. Remember: RR^T = 1!
@@ -118,7 +124,7 @@ class ICP:
 
         # Our formula: t = p - Rq
 
-        translation_vector = mean_of_p - rotation_matrix.dot(mean_of_q) #TRY SWAP THIS
+        translation_vector = mean_of_p - rotation_matrix.dot(mean_of_q)
 
         return rotation_matrix, translation_vector
 
@@ -179,16 +185,15 @@ def main():
     m1 = ModelLoader.load("bunny/bun000_v2.ply")
     m2 = ModelLoader.load("bunny/bun045_v2.ply")
 
-    sample_size = 1000
-    max_it = 20
+    max_it = 5
 
-    #m3 = ICP.align(m2, m1, 1000, 50)
-    #ModelLoader.save("output/q1.ply", m3)
+    m3 = ICP.align(m2, m1, max_it)
+    ModelLoader.save("output/q1.ply", m3)
 
-    for it in range(1, max_it):
-        ModelLoader.save("output/" + str(it) + "-q1.ply", ICP.align(m2, m1, sample_size, it))
+    # for it in range(1, max_it):
+    #     ModelLoader.save("output/" + str(it) + "-q1.ply", ICP.align(m2, m1, sample_size, it))
 
-    #for it in range(0, 20):
+    # for it in range(0, 20):
     #    m3 = ICP.align(m2, m1, sample_size, it)
 
     #    ModelLoader.save("output/" + str(it) + "-q1.ply", m3)
