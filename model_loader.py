@@ -31,6 +31,12 @@ class Model:
                 self.points[i] = self.points[i] + random.gauss(-0.01, +0.01)
 
 
+class ModelWithNormals:
+    def __init__(self, model, normals):
+        self.model = model
+        self.normals = normals
+
+
 class ModelLoader:
     @staticmethod
     def load(file_name):
@@ -79,5 +85,35 @@ class ModelLoader:
 
             for f in model.faces:
                 file_out.write(str(f))
+
+        print("Saved model -> " + file_name)
+
+    @staticmethod
+    def save_to_obj(file_name, model_with_normals):
+        with open(file_name, "w+") as file_out:
+            # for h in model.header:
+            #    file_out.write(h + "\n")
+
+            file_out.write("\n# Vertices\n\n")
+
+            for p in model_with_normals.model.points:
+                line = "v " + str(p[0, 0]) + " " + str(p[1, 0]) + " " + str(p[2, 0]) + "\n"
+                file_out.write(line)
+
+            file_out.write("\n# Normals\n\n")
+
+            for n in model_with_normals.normals:
+                line = "vn " + str(n[0]) + " " + str(n[1]) + " " + str(n[2]) + "\n"
+                file_out.write(line)
+
+            file_out.write("\n# Faces\n\n")
+
+            # We assume one normal per vertex
+
+            for f in model_with_normals.model.faces:
+                file_out.write("f " + str(f.p0) + "//" + str(f.p0) + " " + str(f.p1) + "//" + str(f.p1) + " " + str(
+                    f.p2) + "//" + str(f.p2) + "\n")
+
+                #file_out.write("f " + str(f.p0) + " " + str(f.p1) + " " + str(f.p2) + "\n")
 
         print("Saved model -> " + file_name)
